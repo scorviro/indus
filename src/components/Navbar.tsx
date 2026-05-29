@@ -24,8 +24,8 @@ export default function Navbar({ activeSection = "home" }: NavbarProps) {
 
   return (
     <nav className={`fixed top-0 left-0 w-full z-40 transition-all duration-500 font-mono select-none ${
-      scrolled ? "bg-black/10 backdrop-blur-md py-4 border-b border-white/5" : "bg-transparent py-6"
-    }`}>
+      scrolled ? "bg-[#050505]/40 backdrop-blur-md border-b border-white/5" : "bg-transparent"
+    } py-6`}>
       <div className="max-w-7xl mx-auto px-6 md:px-12 flex justify-between items-center">
         {/* Logo */}
         <a href="#" className="flex items-center gap-2 group">
@@ -39,48 +39,58 @@ export default function Navbar({ activeSection = "home" }: NavbarProps) {
         <div className="hidden md:flex items-center gap-8 text-[11px] font-semibold tracking-wider uppercase">
           <a 
             href="#" 
-            className={`relative py-1 transition-all duration-300 ${activeSection === "home" ? "text-white" : "text-white/40 hover:text-white"}`}
+            className={`group relative py-1 transition-all duration-300 ${activeSection === "home" ? "text-white" : "text-white/40 hover:text-white"}`}
           >
             HOME
-            {activeSection === "home" && (
-              <span className="absolute -bottom-1 left-0 w-full h-[1.5px] bg-white rounded-full" />
-            )}
+            <span className={`absolute -bottom-1 left-0 w-full h-[1.5px] rounded-full transition-transform duration-300 origin-left ${
+              activeSection === "home" 
+                ? "bg-white scale-x-100" 
+                : "bg-[#ff6b00] scale-x-0 group-hover:scale-x-100"
+            }`} />
           </a>
           <a 
             href="#about" 
-            className={`relative py-1 transition-all duration-300 ${activeSection === "about" ? "text-white" : "text-white/40 hover:text-white"}`}
+            className={`group relative py-1 transition-all duration-300 ${activeSection === "about" ? "text-white" : "text-white/40 hover:text-white"}`}
           >
             ABOUT
-            {activeSection === "about" && (
-              <span className="absolute -bottom-1 left-0 w-full h-[1.5px] bg-white rounded-full" />
-            )}
+            <span className={`absolute -bottom-1 left-0 w-full h-[1.5px] rounded-full transition-transform duration-300 origin-left ${
+              activeSection === "about" 
+                ? "bg-white scale-x-100" 
+                : "bg-[#ff6b00] scale-x-0 group-hover:scale-x-100"
+            }`} />
           </a>
           <a 
             href="#product" 
-            className={`relative py-1 transition-all duration-300 ${activeSection === "product" ? "text-white" : "text-white/40 hover:text-white"}`}
+            className={`group relative py-1 transition-all duration-300 ${activeSection === "product" ? "text-white" : "text-white/40 hover:text-white"}`}
           >
             PRODUCT
-            {activeSection === "product" && (
-              <span className="absolute -bottom-1 left-0 w-full h-[1.5px] bg-white rounded-full" />
-            )}
+            <span className={`absolute -bottom-1 left-0 w-full h-[1.5px] rounded-full transition-transform duration-300 origin-left ${
+              activeSection === "product" 
+                ? "bg-white scale-x-100" 
+                : "bg-[#ff6b00] scale-x-0 group-hover:scale-x-100"
+            }`} />
           </a>
           <a 
             href="#specs" 
-            className={`relative py-1 transition-all duration-300 ${activeSection === "specs" ? "text-white" : "text-white/40 hover:text-white"}`}
+            className={`group relative py-1 transition-all duration-300 ${activeSection === "specs" ? "text-white" : "text-white/40 hover:text-white"}`}
           >
             SPECIFICATION
-            {activeSection === "specs" && (
-              <span className="absolute -bottom-1 left-0 w-full h-[1.5px] bg-white rounded-full" />
-            )}
+            <span className={`absolute -bottom-1 left-0 w-full h-[1.5px] rounded-full transition-transform duration-300 origin-left ${
+              activeSection === "specs" 
+                ? "bg-white scale-x-100" 
+                : "bg-[#ff6b00] scale-x-0 group-hover:scale-x-100"
+            }`} />
           </a>
           <a 
             href="#services" 
-            className={`relative py-1 transition-all duration-300 ${activeSection === "services" ? "text-white" : "text-white/40 hover:text-white"}`}
+            className={`group relative py-1 transition-all duration-300 ${activeSection === "services" ? "text-white" : "text-white/40 hover:text-white"}`}
           >
             SERVICES
-            {activeSection === "services" && (
-              <span className="absolute -bottom-1 left-0 w-full h-[1.5px] bg-white rounded-full" />
-            )}
+            <span className={`absolute -bottom-1 left-0 w-full h-[1.5px] rounded-full transition-transform duration-300 origin-left ${
+              activeSection === "services" 
+                ? "bg-white scale-x-100" 
+                : "bg-[#ff6b00] scale-x-0 group-hover:scale-x-100"
+            }`} />
           </a>
         </div>
 

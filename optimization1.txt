@@ -1,0 +1,137 @@
+Let's dive deeper into the code architecture of your `indus` project. Looking beyond the high-level strategies, we can pinpoint highly specific, code-level improvements within your existing files to make the application bulletproof and hyper-optimized.
+
+Here is a targeted breakdown of exactly where the remaining vulnerabilities and performance bottlenecks are in your codebase, along with concrete solutions.
+
+---
+
+## 1. Code-Level Vulnerabilities & Optimizations
+
+### 🛠️ Memory Leak in `useFramePreloader.ts`
+
+* **The Location:** Inside the image preloading loop.
+
+
+* **The Problem:** The current implementation hooks into `img.onload` and `img.onerror` inside a massive loop, but it **never clears these event handlers** once they fire, nor does it cancel pending network requests if the component unmounts prematurely. This keeps thousands of image objects and their callbacks alive in memory, causing heavy Garbage Collection (GC) spikes.
+* **The Fix:** Maintain a cleanup array of image objects and nullify their event listeners upon unmounting.
+
+### 🎨 Canvas Context State Overheads
+
+* **The Location:** `renderFrame` method inside `ScrollContainer.tsx`.
+
+
+* **The Problem:** Every time a frame draws, the code fetches the canvas context, recalculates layout math (`canvasRatio`, `imgRatio`), and sets context properties. Modifying properties like `ctx.fillStyle` or modifying canvas sizes on every single frame refresh forces the browser to re-evaluate the canvas state state machine, dropping rendering performance.
+
+
+* **The Fix:** Cache the context object, compute layout dimensions *only* during window resizes, and completely remove fill/stroke changes from the active frame drawing path.
+
+### ⚡ React State Batching & Re-renders
+
+* **The Location:** State tracking counters like `loadedCount`.
+
+
+* **The Problem:** Updating a granular state numerical integer (`setLoadedCount(prev => prev + 1)`) 960 times in rapid succession forces React to queue up massive state batching updates, occasionally choking the virtual DOM tree reconciliation during initial page load.
+
+
+* **The Fix:** Throttle the loading progress updates (e.g., only update the React state every 10 or 20 frames loaded) to let the main thread breathe.
+
+---
+
+## 2. Refactoring Blueprint (The Code Fixes)
+
+Here is exactly how these changes should be written into your source files.
+
+### Refactoring `src/hooks/useFramePreloader.ts`
+
+```typescript
+import { useEffect, useRef, useState } from 'react';
+
+// Optimized preloader with event cleanup to eliminate memory leaks
+export const useFramePreloader = (totalFrames: number) => {
+  const [images, setImages] = useState<HTMLImageElement[]>([]);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const activeRequestsRef = useRef<HTMLImageElement[]>([]);
+
+  useEffect(() => {
+    const loadedImages: HTMLImageElement[] = [];
+    let localLoadedCounter = 0;
+
+    for (let i = 0; i < totalFrames; i++) {
+      const img = new Image();
+      // Zero out padding strings efficiently
+      const frameIndex = String(i + 1).padStart(6, '0');
+      img.src = `/frames/frame_${frameIndex}.webp`;
+
+      img.onload = () => {
+        localLoadedCounter++;
+        // Throttle UI state commits to protect the React main thread
+        if (localLoadedCounter % 15 === 0 || localLoadedCounter === totalFrames) {
+          setLoadedCount(localLoadedCounter);
+        }
+        // Explicitly clear references to prevent Garbage Collection buildup
+        img.onload = null;
+        img.onerror = null;
+      };
+
+      img.onerror = () => {
+        img.onload = null;
+        img.onerror = null;
+      };
+
+      loadedImages.push(img);
+      activeRequestsRef.current.push(img);
+    }
+
+    setImages(loadedImages);
+
+    // Cancel and nullify all listeners if user navigates away mid-load
+    return () => {
+      activeRequestsRef.current.forEach((img) => {
+        img.onload = null;
+        img.onerror = null;
+        img.src = ''; // Stops pending browser network stream downloads immediately
+      });
+      activeRequestsRef.current = [];
+    };
+  }, [totalFrames]);
+
+  return { images, loadedCount };
+};
+
+```
+
+---
+
+## 3. Production-Ready Agent Specification Report
+
+Feed this deep-dive optimization report into your autonomous coding agent to execute these targeted code-level improvements.
+
+```markdown
+# Agent Directive: Code-Level Garbage Collection & Canvas State Optimization
+
+## 1. Target Scope
+- **Target Files:** `src/hooks/useFramePreloader.ts`, `src/components/ScrollContainer.tsx`
+- **Objective:** Eliminate memory leaks from lingering image event listeners, cache static canvas matrix computations, and reduce React state dispatch frequencies.
+
+## 2. Execution Directives
+
+### Task 1: Nullify Preloader Event Closures
+- **Target:** `useFramePreloader.ts`
+- **Action:** 
+  1. Immediately following an `img.onload` or `img.onerror` resolution execution, explicitly clear memory spaces by setting `img.onload = null` and `img.onerror = null`.
+  2. Implement an explicit `useEffect` unmount cleanup routine that maps over any incomplete image elements, resets their callbacks, and re-assigns `img.src = ""` to kill active network payloads.
+
+### Task 2: Throttle React State Updates for Assets
+- **Target:** `useFramePreloader.ts`
+- **Action:** 
+  1. Replace individual state increments with a modulo counter check.
+  2. Restrict executions of `setLoadedCount` to only occur when `currentCount % 15 === 0` or upon complete array loop termination to optimize DOM update batches.
+
+### Task 3: Cache Canvas Matrix Math Bounds
+- **Target:** `ScrollContainer.tsx`
+- **Action:**
+  1. Remove aspect ratio calculations (`canvasRatio`, `imgRatio`) and canvas dimension adjustments out of the continuous scroll `renderFrame` path.
+  2. Bind aspect ratio caching logic strictly inside the debounced `resizeCanvas` function handler, saving calculated bounding values into a persistent reference layout structure (`dimensionsRef.current`).
+
+## 3. Critical Constraints
+- Do not modify or alter the default string formatting logic (`padStart(6, '0')`) required to map static frames correctly.
+- All functional refactors must cleanly pass strict production compilation tests without throwing unused reference warnings or breaking type safety.

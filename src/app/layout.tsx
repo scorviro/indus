@@ -28,12 +28,31 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Generate preload links for the first 50 frames to prevent head-of-line blocking
+  const preloadLinks = Array.from({ length: 50 }, (_, i) => {
+    const frameNum = String(i + 1).padStart(6, "0");
+    const path = `/frames/frame_${frameNum}.webp`;
+    return (
+      <link
+        key={path}
+        rel="preload"
+        as="image"
+        href={path}
+        type="image/webp"
+      />
+    );
+  });
+
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${bebasNeue.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#050505] text-white">{children}</body>
+      <head>
+        {preloadLinks}
+      </head>
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-[#050505] text-white">{children}</body>
     </html>
   );
 }

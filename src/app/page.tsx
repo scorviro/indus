@@ -2,15 +2,25 @@
 
 import { useEffect, useState } from "react";
 import Lenis from "lenis";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useGSAP } from "@gsap/react";
 import { useFramePreloader } from "@/hooks/useFramePreloader";
 import Preloader from "@/components/Preloader";
 import ScrollContainer from "@/components/ScrollContainer";
 import Navbar from "@/components/Navbar";
+import ProductSection from "@/components/ProductSection";
+import SpecsSection from "@/components/SpecsSection";
+import ServicesSection from "@/components/ServicesSection";
+
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 export default function Home() {
   const { images, progress, isReady } = useFramePreloader();
   const [loadingComplete, setLoadingComplete] = useState(false);
-  const [activeSection, setActiveSection] = useState<"home" | "about" | "product" | "specs" | "services">("home");
+  const [activeSection, setActiveSection] = useState<"home" | "about" | "product" | "specs" | "services" | "quote">("home");
   const [startTransition, setStartTransition] = useState(false);
 
   useEffect(() => {
@@ -37,10 +47,42 @@ export default function Home() {
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
     });
 
-    // Synchronize Lenis with GSAP ScrollTrigger
     lenis.on("scroll", () => {
-      // Allow GSAP ScrollTrigger to update
+      ScrollTrigger.update();
     });
+
+    // Intercept anchor clicks for smooth scrolling via Lenis
+    const handleAnchorClick = (e: MouseEvent) => {
+      const targetLink = (e.target as HTMLElement).closest("a");
+      if (!targetLink) return;
+
+      const href = targetLink.getAttribute("href");
+      if (href && href.startsWith("#")) {
+        e.preventDefault();
+        
+        const targetId = href === "#" ? "home" : href.substring(1);
+        const targetEl = document.getElementById(targetId);
+        
+        if (targetEl) {
+          let offset = 0;
+          if (targetId === "services") {
+            offset = -120; // Scroll 120px further down to center the technical quote form
+          } else if (targetId === "quote") {
+            offset = 80;  // Stop 80px above the quote form to account for the navbar
+          } else if (targetId === "product" || targetId === "specs") {
+            offset = 80;  // Stop 80px above to account for the sticky navbar height
+          }
+
+          lenis.scrollTo(targetEl, {
+            offset: offset,
+            duration: 1.8,
+            immediate: false,
+          });
+        }
+      }
+    };
+
+    document.addEventListener("click", handleAnchorClick, { passive: false });
 
     const raf = (time: number) => {
       lenis.raf(time);
@@ -50,11 +92,47 @@ export default function Home() {
     requestAnimationFrame(raf);
 
     return () => {
+      document.removeEventListener("click", handleAnchorClick);
       lenis.destroy();
       document.body.style.overflow = "";
       document.body.style.height = "";
     };
   }, [loadingComplete]);
+
+  // Set up ScrollTriggers for tracking active section in navigation
+  useGSAP(
+    () => {
+      if (!loadingComplete) return;
+
+      ScrollTrigger.create({
+        trigger: "#product",
+        start: "top 40%",
+        end: "bottom 40%",
+        onToggle: (self) => {
+          if (self.isActive) setActiveSection("product");
+        },
+      });
+
+      ScrollTrigger.create({
+        trigger: "#specs",
+        start: "top 40%",
+        end: "bottom 40%",
+        onToggle: (self) => {
+          if (self.isActive) setActiveSection("specs");
+        },
+      });
+
+      ScrollTrigger.create({
+        trigger: "#services",
+        start: "top 40%",
+        end: "bottom 40%",
+        onToggle: (self) => {
+          if (self.isActive) setActiveSection("services");
+        },
+      });
+    },
+    { dependencies: [loadingComplete] }
+  );
 
   const experienceMounted = isReady || progress >= 100;
 
@@ -92,10 +170,19 @@ export default function Home() {
 
           <Navbar activeSection={activeSection} />
           <main className="w-full">
-            <ScrollContainer images={images} onSectionChange={setActiveSection} />
+            <ScrollContainer
+              images={images}
+              loadingComplete={loadingComplete}
+              activeSection={activeSection}
+              onSectionChange={setActiveSection}
+            />
+            <ProductSection />
+            <SpecsSection />
+            <ServicesSection />
           </main>
         </div>
       )}
     </div>
   );
 }
+
