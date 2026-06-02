@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 const TOTAL_FRAMES = 960;
-const BATCH_SIZE = 50; // Smaller batches are safer for mobile memory
 
 // Global cache to persist across React StrictMode remounts and hot reloads
 const globalImages: HTMLImageElement[] = [];
@@ -23,106 +22,144 @@ const startGlobalLoading = () => {
   if (globalLoadingStarted) return;
   globalLoadingStarted = true;
 
-  let loadedCount = 0;
-  let nextToLoad = 1;
-  const imageSuccess = new Uint8Array(TOTAL_FRAMES);
+  const tier1Indices: number[] = [];
+  const tier2Indices: number[] = [];
 
-  const loadNextBatch = () => {
-    if (nextToLoad > TOTAL_FRAMES) return;
+  // Tier 1: Every 8th frame, plus the last frame to ensure smooth endpoint
+  for (let i = 1; i <= TOTAL_FRAMES; i++) {
+    if ((i - 1) % 8 === 0 || i === TOTAL_FRAMES) {
+      tier1Indices.push(i);
+    } else {
+      tier2Indices.push(i);
+    }
+  }
 
-    const currentBatchEnd = Math.min(nextToLoad + BATCH_SIZE - 1, TOTAL_FRAMES);
-    const batchLength = currentBatchEnd - nextToLoad + 1;
-    let batchLoaded = 0;
+  const totalTier1 = tier1Indices.length;
+  let tier1LoadedCount = 0;
 
-    for (let i = nextToLoad; i <= currentBatchEnd; i++) {
-      const img = new Image();
-      img.src = getFramePath(i);
-      globalImages[i - 1] = img;
-      activeRequests.push(img);
+  // Pre-initialize globalImages array
+  for (let i = 0; i < TOTAL_FRAMES; i++) {
+    globalImages[i] = null as unknown as HTMLImageElement;
+  }
 
-      const handleImageLoad = () => {
-        loadedCount++;
-        batchLoaded++;
-        
-        // Restrict executions of state notification to progress % 15 or loop completion
-        if (loadedCount % 15 === 0 || loadedCount === TOTAL_FRAMES) {
-          globalProgress = Math.floor((loadedCount / TOTAL_FRAMES) * 100);
-          globalCallbacks.forEach((cb) => cb(globalProgress, globalIsReady));
+  const startTier2BackgroundLoading = () => {
+    let nextIndex = 0;
+    const totalTier2 = tier2Indices.length;
+
+    const idleLoad = (deadline: IdleDeadline) => {
+      while (nextIndex < totalTier2 && deadline.timeRemaining() > 1) {
+        const frameNum = tier2Indices[nextIndex];
+        nextIndex++;
+
+        // Only load if not already loaded
+        if (!globalImages[frameNum - 1]) {
+          const img = new Image();
+          img.src = getFramePath(frameNum);
+          globalImages[frameNum - 1] = img;
+          activeRequests.push(img);
+
+          img.onload = () => {
+            img.onload = null;
+            img.onerror = null;
+            const idx = activeRequests.indexOf(img);
+            if (idx > -1) activeRequests.splice(idx, 1);
+          };
+          img.onerror = () => {
+            img.onload = null;
+            img.onerror = null;
+            const idx = activeRequests.indexOf(img);
+            if (idx > -1) activeRequests.splice(idx, 1);
+          };
         }
+      }
 
-        if (loadedCount === TOTAL_FRAMES) {
-          // Resolve broken frames by replacing them with the nearest valid frame
-          for (let j = 0; j < TOTAL_FRAMES; j++) {
-            if (imageSuccess[j] === 0) {
-              let nearestIndex = -1;
-              let minDist = Infinity;
-              
-              // Search backwards
-              for (let k = j - 1; k >= 0; k--) {
-                if (imageSuccess[k] === 1) {
-                  nearestIndex = k;
-                  minDist = j - k;
-                  break;
-                }
-              }
-              
-              // Search forwards
-              for (let k = j + 1; k < TOTAL_FRAMES; k++) {
-                if (imageSuccess[k] === 1) {
-                  const dist = k - j;
-                  if (dist < minDist) {
-                    nearestIndex = k;
-                  }
-                  break;
-                }
-              }
-              
-              if (nearestIndex !== -1) {
-                globalImages[j] = globalImages[nearestIndex];
-              }
-            }
-          }
-          globalIsReady = true;
-          // Notify listeners of the final loaded status
-          globalCallbacks.forEach((cb) => cb(globalProgress, globalIsReady));
+      if (nextIndex < totalTier2) {
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(idleLoad);
+        } else {
+          setTimeout(() => {
+            requestAnimationFrame(() => {
+              const start = performance.now();
+              idleLoad({
+                didTimeout: false,
+                timeRemaining: () => Math.max(0, 50 - (performance.now() - start)),
+              });
+            });
+          }, 50);
         }
+      }
+    };
 
-        if (batchLoaded === batchLength) {
-          nextToLoad = currentBatchEnd + 1;
-          setTimeout(loadNextBatch, 5);
-        }
-      };
-
-      img.onload = () => {
-        imageSuccess[i - 1] = 1;
-        // Explicitly clear listener references to prevent GC build-up
-        img.onload = null;
-        img.onerror = null;
-        
-        const idx = activeRequests.indexOf(img);
-        if (idx > -1) {
-          activeRequests.splice(idx, 1);
-        }
-
-        queueMicrotask(handleImageLoad);
-      };
-      
-      img.onerror = () => {
-        // Explicitly clear listener references to prevent GC build-up
-        img.onload = null;
-        img.onerror = null;
-
-        const idx = activeRequests.indexOf(img);
-        if (idx > -1) {
-          activeRequests.splice(idx, 1);
-        }
-
-        queueMicrotask(handleImageLoad);
-      }; // Ensure broken loads don't block progress
+    if (typeof requestIdleCallback !== "undefined") {
+      requestIdleCallback(idleLoad);
+    } else {
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          const start = performance.now();
+          idleLoad({
+            didTimeout: false,
+            timeRemaining: () => Math.max(0, 50 - (performance.now() - start)),
+          });
+        });
+      }, 50);
     }
   };
 
-  loadNextBatch();
+  const loadTier1 = () => {
+    const BATCH_SIZE = 15;
+    let nextIndex = 0;
+
+    const loadNextBatch = () => {
+      if (nextIndex >= totalTier1) {
+        globalIsReady = true;
+        globalProgress = 100;
+        globalCallbacks.forEach((cb) => cb(globalProgress, globalIsReady));
+
+        // Start loading Tier 2 frames in background
+        startTier2BackgroundLoading();
+        return;
+      }
+
+      const batchLimit = Math.min(nextIndex + BATCH_SIZE, totalTier1);
+      let batchLoaded = 0;
+      const batchSize = batchLimit - nextIndex;
+
+      for (let k = nextIndex; k < batchLimit; k++) {
+        const frameNum = tier1Indices[k];
+        const img = new Image();
+        img.src = getFramePath(frameNum);
+        globalImages[frameNum - 1] = img;
+        activeRequests.push(img);
+
+        const handleLoad = () => {
+          tier1LoadedCount++;
+          batchLoaded++;
+
+          if (tier1LoadedCount % 5 === 0 || tier1LoadedCount === totalTier1) {
+            globalProgress = Math.floor((tier1LoadedCount / totalTier1) * 100);
+            globalCallbacks.forEach((cb) => cb(globalProgress, globalIsReady));
+          }
+
+          img.onload = null;
+          img.onerror = null;
+          const idx = activeRequests.indexOf(img);
+          if (idx > -1) activeRequests.splice(idx, 1);
+
+          if (batchLoaded === batchSize) {
+            nextIndex = batchLimit;
+            setTimeout(loadNextBatch, 5);
+          }
+        };
+
+        img.onload = handleLoad;
+        img.onerror = handleLoad;
+      }
+    };
+
+    loadNextBatch();
+  };
+
+  loadTier1();
 };
 
 export function useFramePreloader() {
@@ -130,10 +167,20 @@ export function useFramePreloader() {
   const [isReady, setIsReady] = useState(globalIsReady);
 
   useEffect(() => {
-    // Start global loading if it hasn't run yet
+    // Register Service Worker
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          console.log("Service Worker registered with scope:", reg.scope);
+        })
+        .catch((err) => {
+          console.error("Service Worker registration failed:", err);
+        });
+    }
+
     startGlobalLoading();
 
-    // Register update callback
     const handleUpdate = (newProgress: number, ready: boolean) => {
       setProgress(newProgress);
       setIsReady(ready);
@@ -141,7 +188,6 @@ export function useFramePreloader() {
 
     globalCallbacks.add(handleUpdate);
 
-    // If already loaded, trigger state update immediately
     if (globalIsReady) {
       setProgress(100);
       setIsReady(true);
@@ -150,22 +196,25 @@ export function useFramePreloader() {
     return () => {
       globalCallbacks.delete(handleUpdate);
 
-      // Cancel and nullify all listeners if no more active hooks are listening mid-load
-      if (!globalIsReady && globalCallbacks.size === 0) {
-        activeRequests.forEach((img) => {
-          img.onload = null;
-          img.onerror = null;
-          img.src = ""; // Stops pending browser network stream downloads immediately
-        });
-        activeRequests = [];
-        globalLoadingStarted = false;
-      }
+      // Cancel/cleanup delayed to handle React StrictMode double-mounting safely
+      setTimeout(() => {
+        if (!globalIsReady && globalCallbacks.size === 0 && globalLoadingStarted) {
+          activeRequests.forEach((img) => {
+            img.onload = null;
+            img.onerror = null;
+            img.src = "";
+          });
+          activeRequests = [];
+          globalLoadingStarted = false;
+        }
+      }, 50);
     };
   }, []);
 
   return {
     images: globalImages,
     progress,
-    isReady
+    isReady,
   };
 }
+

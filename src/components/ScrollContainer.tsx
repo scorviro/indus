@@ -77,16 +77,43 @@ export default function ScrollContainer({ images, loadingComplete, activeSection
 
     const renderInitialFrame = () => {
       if (!img.complete || img.naturalWidth === 0) {
-        // Retry when fully loaded
-        img.onload = renderInitialFrame;
+        // Retry when fully loaded and ensure clean up
+        img.onload = () => {
+          img.onload = null;
+          img.onerror = null;
+          renderInitialFrame();
+        };
+        img.onerror = () => {
+          img.onload = null;
+          img.onerror = null;
+        };
         return;
       }
 
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      // Clamp render operations strictly to maximum device pixel ratio of 2
+      const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+      
+      let width = window.innerWidth * dpr;
+      let height = window.innerHeight * dpr;
 
-      const width = canvas.width;
-      const height = canvas.height;
+      // Mobile dimensions clamp to 2048px to prevent memory crashes
+      const isMobile = typeof window !== "undefined" && (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+      if (isMobile) {
+        const maxDimension = 2048;
+        if (width > maxDimension || height > maxDimension) {
+          const aspect = width / height;
+          if (aspect > 1) {
+            width = maxDimension;
+            height = maxDimension / aspect;
+          } else {
+            height = maxDimension;
+            width = maxDimension * aspect;
+          }
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
 
       const imgWidth = img.naturalWidth || img.width || 1920;
       const imgHeight = img.naturalHeight || img.height || 1080;
@@ -130,29 +157,61 @@ export default function ScrollContainer({ images, loadingComplete, activeSection
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      // Track window/tab active focus status for thermal management
+      let isTabFocused = true;
+      const handleFocus = () => { isTabFocused = true; };
+      const handleBlur = () => { isTabFocused = false; };
+      if (typeof window !== "undefined") {
+        window.addEventListener("focus", handleFocus);
+        window.addEventListener("blur", handleBlur);
+        isTabFocused = document.hasFocus();
+      }
+
       // Handle window resize for cover scaling
       const resizeCanvas = (width: number, height: number) => {
-        canvas.width = width;
-        canvas.height = height;
+        // Clamp render operations strictly to maximum device pixel ratio of 2
+        const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+        
+        let targetWidth = width * dpr;
+        let targetHeight = height * dpr;
+        
+        // Detect mobile device parameters and enforce hard maximum canvas dimensions below 2048px
+        const isMobile = typeof window !== "undefined" && (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+        if (isMobile) {
+          const maxDimension = 2048;
+          if (targetWidth > maxDimension || targetHeight > maxDimension) {
+            const aspect = targetWidth / targetHeight;
+            if (aspect > 1) {
+              targetWidth = maxDimension;
+              targetHeight = maxDimension / aspect;
+            } else {
+              targetHeight = maxDimension;
+              targetWidth = maxDimension * aspect;
+            }
+          }
+        }
+
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
 
         const firstImg = images[0];
         if (firstImg) {
           const imgWidth = firstImg.naturalWidth || firstImg.width || 1920;
           const imgHeight = firstImg.naturalHeight || firstImg.height || 1080;
           const imgRatio = imgWidth / imgHeight;
-          const canvasRatio = width / height;
+          const canvasRatio = targetWidth / targetHeight;
 
           let drawWidth, drawHeight, drawX, drawY;
 
           if (canvasRatio > imgRatio) {
-            drawWidth = width;
-            drawHeight = width / imgRatio;
+            drawWidth = targetWidth;
+            drawHeight = targetWidth / imgRatio;
             drawX = 0;
-            drawY = (height - drawHeight) / 2;
+            drawY = (targetHeight - drawHeight) / 2;
           } else {
-            drawWidth = height * imgRatio;
-            drawHeight = height;
-            drawX = (width - drawWidth) / 2;
+            drawWidth = targetHeight * imgRatio;
+            drawHeight = targetHeight;
+            drawX = (targetWidth - drawWidth) / 2;
             drawY = 0;
           }
 
@@ -165,7 +224,35 @@ export default function ScrollContainer({ images, loadingComplete, activeSection
 
       // Draw active image frame centered with aspect ratio "cover"
       const renderFrame = (index: number) => {
-        const img = images[index];
+        let img = images[index];
+
+        // Fallback to nearest loaded frame if current frame is not ready
+        if (!img || !img.complete || img.naturalWidth === 0) {
+          let nearestImg = null;
+          for (let offset = 1; offset < TOTAL_FRAMES; offset++) {
+            const prevIdx = index - offset;
+            const nextIdx = index + offset;
+            
+            if (prevIdx >= 0) {
+              const checkImg = images[prevIdx];
+              if (checkImg && checkImg.complete && checkImg.naturalWidth > 0) {
+                nearestImg = checkImg;
+                break;
+              }
+            }
+            if (nextIdx < TOTAL_FRAMES) {
+              const checkImg = images[nextIdx];
+              if (checkImg && checkImg.complete && checkImg.naturalWidth > 0) {
+                nearestImg = checkImg;
+                break;
+              }
+            }
+          }
+          if (nearestImg) {
+            img = nearestImg;
+          }
+        }
+
         if (!img || !ctx) return;
 
         const { drawWidth, drawHeight, drawX, drawY } = dimensionsRef.current;
@@ -198,6 +285,13 @@ export default function ScrollContainer({ images, loadingComplete, activeSection
       let isLoopActive = true;
       const tick = () => {
         if (!isLoopActive) return;
+
+        // Thermal management: Stop drawing when tab is hidden or window is blurred/unfocused
+        const isHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+        if (isHidden || !isTabFocused) {
+          requestAnimationFrame(tick);
+          return;
+        }
         
         // Perform draw operations only if the index state has scrolled to a new frame
         if (activeFrameRef.current !== renderedFrameRef.current) {
@@ -395,6 +489,10 @@ export default function ScrollContainer({ images, loadingComplete, activeSection
       return () => {
         isLoopActive = false;
         resizeObserver.disconnect();
+        if (typeof window !== "undefined") {
+          window.removeEventListener("focus", handleFocus);
+          window.removeEventListener("blur", handleBlur);
+        }
       };
     },
     { dependencies: [images, loadingComplete] }
